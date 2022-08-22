@@ -134,7 +134,7 @@ func (u *Upgrader) Upgrade(appCtx *app.RequestContext, handler HertzHandler) err
 	rsp := &appCtx.Response
 
 	if appCtx.Hijacked() {
-		return u.returnError(appCtx, http.StatusInternalServerError, "appCtx.Hijacked")
+		return u.returnError(appCtx, http.StatusInternalServerError, "connection mustn't be hijacked")
 	}
 
 	const badHandshake = "websocket: the client is not using the websocket protocol: "

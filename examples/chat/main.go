@@ -23,7 +23,6 @@ var upgrader = websocket.Upgrader{
 var addr = ":8080"
 
 func serveHome(_ context.Context, c *app.RequestContext) {
-	log.Println(string(c.URI().FullURI()))
 	if string(c.URI().Path()) != "/" {
 		hlog.Error("Not found", http.StatusNotFound)
 		return

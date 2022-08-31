@@ -5,7 +5,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"html/template"
 	"io/ioutil"
@@ -15,10 +14,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/cloudwego/hertz/pkg/common/hlog"
-	"github.com/hertz-contrib/websocket"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -114,35 +110,34 @@ func writer(ws *websocket.Conn, lastMod time.Time) {
 	}
 }
 
-func serveWs(_ context.Context, c *app.RequestContext) {
-	err := upgrader.Upgrade(c, func(conn *websocket.Conn) error {
-		var lastMod time.Time
-		if n, err := strconv.ParseInt(c.Query("lastMod"), 16, 64); err == nil {
-			lastMod = time.Unix(0, n)
-		}
-
-		go writer(conn, lastMod)
-		reader(conn)
-		return nil
-	})
+func serveWs(w http.ResponseWriter, r *http.Request) {
+	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		if _, ok := err.(websocket.HandshakeError); !ok {
 			log.Println(err)
 		}
 		return
 	}
+
+	var lastMod time.Time
+	if n, err := strconv.ParseInt(r.FormValue("lastMod"), 16, 64); err == nil {
+		lastMod = time.Unix(0, n)
+	}
+
+	go writer(ws, lastMod)
+	reader(ws)
 }
 
-func serveHome(_ context.Context, c *app.RequestContext) {
-	if string(c.Path()) != "/" {
-		hlog.Error("Not found", http.StatusNotFound)
+func serveHome(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	if string(c.Method()) != http.MethodGet {
-		hlog.Error("Method not allowed", http.StatusMethodNotAllowed)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	c.Response.Header.Set("Content-Type", "")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p, lastMod, err := readFileIfModified(time.Time{})
 	if err != nil {
 		p = []byte(err.Error())
@@ -153,20 +148,24 @@ func serveHome(_ context.Context, c *app.RequestContext) {
 		Data    string
 		LastMod string
 	}{
-		string(c.Host()),
+		r.Host,
 		string(p),
 		strconv.FormatInt(lastMod.UnixNano(), 16),
 	}
-	// vv, _ := json.Marshal(v)
-	// c.Data(consts.StatusOK, "text/html; charset=utf-8", vv)
-	homeTempl.Execute(c.GetConn(), &v)
+	homeTempl.Execute(w, &v)
 }
 
 func main() {
-	h := server.Default(server.WithHostPorts(*addr))
-	h.GET("/", serveHome)
-	h.GET("/ws", serveWs)
-	h.Spin()
+	flag.Parse()
+	if flag.NArg() != 1 {
+		log.Fatal("filename not specified")
+	}
+	filename = flag.Args()[0]
+	http.HandleFunc("/", serveHome)
+	http.HandleFunc("/ws", serveWs)
+	if err := http.ListenAndServe(*addr, nil); err != nil {
+		log.Fatal(err)
+	}
 }
 
 const homeHTML = `<!DOCTYPE html>

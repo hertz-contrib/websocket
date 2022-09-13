@@ -1,6 +1,9 @@
-// Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
+// Copyright 2017 The Gorilla WebSocket Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+//
+// This file may have been modified by CloudWeGo authors. All CloudWeGo
+// Modifications are Copyright 2022 CloudWeGo Authors.
 
 // Command server is a test server for the Autobahn WebSockets Test Suite.
 package main
@@ -162,11 +165,11 @@ func echoReadAllWritePreparedMessage(_ context.Context, c *app.RequestContext) {
 
 func serveHome(_ context.Context, c *app.RequestContext) {
 	if string(c.URI().Path()) != "/" {
-		_ = c.AbortWithError(http.StatusNotFound, errors.New("Not found."))
+		_ = c.AbortWithError(http.StatusNotFound, errors.New("not found"))
 		return
 	}
 	if !c.IsGet() {
-		_ = c.AbortWithError(http.StatusMethodNotAllowed, errors.New("Method not allowed"))
+		_ = c.AbortWithError(http.StatusMethodNotAllowed, errors.New("method not allowed"))
 		return
 	}
 	c.Response.Header.Set("Content-Type", "text/html; charset=utf-8")

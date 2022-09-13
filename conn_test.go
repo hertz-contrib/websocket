@@ -1,6 +1,9 @@
-// Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
+// Copyright 2017 The Gorilla WebSocket Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+//
+// This file may have been modified by CloudWeGo authors. All CloudWeGo
+// Modifications are Copyright 2022 CloudWeGo Authors.
 
 package websocket
 
@@ -48,7 +51,7 @@ func (a fakeAddr) String() string {
 	return "str"
 }
 
-// newTestConn creates a connnection backed by a fake network connection using
+// newTestConn creates a connection backed by a fake network connection using
 // default values for buffering.
 func newTestConn(r io.Reader, w io.Writer, isServer bool) *Conn {
 	return newConn(fakeNetConn{Reader: r, Writer: w}, isServer, 1024, 1024, nil, nil, nil)
@@ -150,7 +153,7 @@ func TestFraming(t *testing.T) {
 }
 
 func TestControl(t *testing.T) {
-	const message = "this is a ping/pong messsage"
+	const message = "this is a ping/pong message"
 	for _, isServer := range []bool{true, false} {
 		for _, isWriteControl := range []bool{true, false} {
 			name := fmt.Sprintf("s:%v, wc:%v", isServer, isWriteControl)
@@ -440,7 +443,7 @@ func TestWriteAfterMessageWriterClose(t *testing.T) {
 	w, _ := wc.NextWriter(BinaryMessage)
 	io.WriteString(w, "hello")
 	if err := w.Close(); err != nil {
-		t.Fatalf("unxpected error closing message writer, %v", err)
+		t.Fatalf("unexpected error closing message writer, %v", err)
 	}
 
 	if _, err := io.WriteString(w, "world"); err == nil {

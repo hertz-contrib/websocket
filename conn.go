@@ -1,6 +1,9 @@
-// Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
+// Copyright 2017 The Gorilla WebSocket Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+//
+// This file may have been modified by CloudWeGo authors. All CloudWeGo
+// Modifications are Copyright 2022 CloudWeGo Authors.
 
 package websocket
 
@@ -436,7 +439,7 @@ func (c *Conn) WriteControl(messageType int, data []byte, deadline time.Time) er
 
 	d := 1000 * time.Hour
 	if !deadline.IsZero() {
-		d = deadline.Sub(time.Now())
+		d = time.Until(deadline)
 		if d < 0 {
 			return errWriteTimeout
 		}

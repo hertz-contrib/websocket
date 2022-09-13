@@ -5,32 +5,13 @@
 package websocket
 
 import (
-	"crypto/rand"
+	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
-	"io"
-	"strings"
 	"unicode/utf8"
-
-	"github.com/cloudwego/hertz/pkg/protocol"
 )
 
 var keyGUID = []byte("258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
-
-func computeAcceptKey(challengeKey string) string {
-	h := sha1.New()
-	h.Write([]byte(challengeKey))
-	h.Write(keyGUID)
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
-}
-
-func generateChallengeKey() (string, error) {
-	p := make([]byte, 16)
-	if _, err := io.ReadFull(rand.Reader, p); err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(p), nil
-}
 
 // Token octets per RFC 2616.
 var isTokenOctet = [256]bool{
@@ -137,43 +118,6 @@ func nextToken(s string) (token, rest string) {
 	return s[:i], s[i:]
 }
 
-// nextTokenOrQuoted returns the leading token or quoted string per RFC 2616
-// and the string following the token or quoted string.
-func nextTokenOrQuoted(s string) (value string, rest string) {
-	if !strings.HasPrefix(s, "\"") {
-		return nextToken(s)
-	}
-	s = s[1:]
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			return s[:i], s[i+1:]
-		case '\\':
-			p := make([]byte, len(s)-1)
-			j := copy(p, s[:i])
-			escape := true
-			for i = i + 1; i < len(s); i++ {
-				b := s[i]
-				switch {
-				case escape:
-					escape = false
-					p[j] = b
-					j++
-				case b == '\\':
-					escape = true
-				case b == '"':
-					return string(p[:j]), s[i+1:]
-				default:
-					p[j] = b
-					j++
-				}
-			}
-			return "", ""
-		}
-	}
-	return "", ""
-}
-
 // equalASCIIFold returns true if s is equal to t with ASCII case folding as
 // defined in RFC 4790.
 func equalASCIIFold(s, t string) bool {
@@ -198,112 +142,47 @@ func equalASCIIFold(s, t string) bool {
 	return s == t
 }
 
-func protocolReqHeaderValueByKey(reqHeader *protocol.RequestHeader, name string) []string {
-	var headers []string
-	reqHeader.VisitAll(func(k, v []byte) {
-		if string(k) == name {
-			headers = append(headers, string(v))
-		}
-	})
-	return headers
+// parseDataHeader returns a list with values if header value is comma-separated
+func parseDataHeader(headerValue []byte) [][]byte {
+	h := bytes.TrimSpace(headerValue)
+	if bytes.Equal(h, []byte("")) {
+		return nil
+	}
+
+	values := bytes.Split(h, []byte(","))
+	for i := range values {
+		values[i] = bytes.TrimSpace(values[i])
+	}
+	return values
 }
 
-// tokenListContainsValue returns true if the 1#token header with the given
+// tokenContainsValue returns true if the 1#token header with the given
 // name contains a token equal to value with ASCII case folding.
-func tokenListContainsValue(headerValues []string, value string) bool {
-headers:
-	for _, s := range headerValues {
-		for {
-			var t string
-			t, s = nextToken(skipSpace(s))
-			if t == "" {
-				continue headers
-			}
-			s = skipSpace(s)
-			if s != "" && s[0] != ',' {
-				continue headers
-			}
-			if equalASCIIFold(t, value) {
-				return true
-			}
-			if s == "" {
-				continue headers
-			}
-			s = s[1:]
+func tokenContainsValue(s, value string) bool {
+	for {
+		var t string
+		t, s = nextToken(skipSpace(s))
+		if t == "" {
+			return false
 		}
+		s = skipSpace(s)
+		if s != "" && s[0] != ',' {
+			return false
+		}
+		if equalASCIIFold(t, value) {
+			return true
+		}
+		if s == "" {
+			return false
+		}
+
+		s = s[1:]
 	}
-	return false
 }
 
-// parseExtensions parses WebSocket extensions from a header.
-func parseExtensions(extensionsValues []string) []map[string]string {
-	// From RFC 6455:
-	//
-	//  Sec-WebSocket-Extensions = extension-list
-	//  extension-list = 1#extension
-	//  extension = extension-token *( ";" extension-param )
-	//  extension-token = registered-token
-	//  registered-token = token
-	//  extension-param = token [ "=" (token | quoted-string) ]
-	//     ;When using the quoted-string syntax variant, the value
-	//     ;after quoted-string unescaping MUST conform to the
-	//     ;'token' ABNF.
-	var result []map[string]string
-headers:
-	for _, s := range extensionsValues {
-		for {
-			var t string
-			t, s = nextToken(skipSpace(s))
-			if t == "" {
-				continue headers
-			}
-			ext := map[string]string{"": t}
-			for {
-				s = skipSpace(s)
-				if !strings.HasPrefix(s, ";") {
-					break
-				}
-				var k string
-				k, s = nextToken(skipSpace(s[1:]))
-				if k == "" {
-					continue headers
-				}
-				s = skipSpace(s)
-				var v string
-				if strings.HasPrefix(s, "=") {
-					v, s = nextTokenOrQuoted(skipSpace(s[1:]))
-					s = skipSpace(s)
-				}
-				if s != "" && s[0] != ',' && s[0] != ';' {
-					continue headers
-				}
-				ext[k] = v
-			}
-			if s != "" && s[0] != ',' {
-				continue headers
-			}
-			result = append(result, ext)
-			if s == "" {
-				continue headers
-			}
-			s = s[1:]
-		}
-	}
-	return result
-
-}
-
-// isValidChallengeKey checks if the argument meets RFC6455 specification.
-func isValidChallengeKey(s string) bool {
-	// From RFC6455:
-	//
-	// A |Sec-WebSocket-Key| header field with a base64-encoded (see
-	// Section 4 of [RFC4648]) value that, when decoded, is 16 bytes in
-	// length.
-
-	if s == "" {
-		return false
-	}
-	decoded, err := base64.StdEncoding.DecodeString(s)
-	return err == nil && len(decoded) == 16
+func computeAcceptKeyBytes(challengeKey []byte) string {
+	h := sha1.New()
+	h.Write(challengeKey)
+	h.Write(keyGUID)
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }

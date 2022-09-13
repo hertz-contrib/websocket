@@ -9,6 +9,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/websocket"
 )
 
@@ -111,5 +112,19 @@ func (c *Client) writePump() {
 				return
 			}
 		}
+	}
+}
+
+// serveWs handles websocket requests from the peer.
+func serveWs(ctx *app.RequestContext, hub *Hub) {
+	err := upgrader.Upgrade(ctx, func(conn *websocket.Conn) {
+		client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
+		client.hub.register <- client
+
+		go client.writePump()
+		client.readPump()
+	})
+	if err != nil {
+		log.Println(err)
 	}
 }

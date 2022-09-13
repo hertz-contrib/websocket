@@ -5,18 +5,21 @@
 package websocket
 
 import (
-	"bufio"
-	"errors"
-	"io"
-	"net/http"
+	"bytes"
+	"fmt"
 	"net/url"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/protocol"
+	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/savsgio/gotils/strconv"
 )
+
+const badHandshake = "websocket: the client is not using the websocket protocol: "
+
+var strPermessageDeflate = []byte("permessage-deflate")
 
 // HandshakeError describes an error with the handshake from the peer.
 type HandshakeError struct {
@@ -25,11 +28,20 @@ type HandshakeError struct {
 
 func (e HandshakeError) Error() string { return e.message }
 
-// Upgrader specifies parameters for upgrading an HTTP connection to a
+var poolWriteBuffer = sync.Pool{
+	New: func() interface{} {
+		var buf []byte
+		return buf
+	},
+}
+
+// HertzHandler receives a websocket connection after the handshake has been
+// completed. This must be provided.
+type HertzHandler func(*Conn)
+
+// HertzUpgrader specifies parameters for upgrading an HTTP connection to a
 // WebSocket connection.
-//
-// It is safe to call Upgrader's methods concurrently.
-type Upgrader struct {
+type HertzUpgrader struct {
 	// HandshakeTimeout specifies the duration for the handshake to complete.
 	HandshakeTimeout time.Duration
 
@@ -69,7 +81,7 @@ type Upgrader struct {
 	//
 	// A CheckOrigin function should carefully validate the request origin to
 	// prevent cross-site request forgery.
-	CheckOrigin func(r *protocol.Request) bool
+	CheckOrigin func(ctx *app.RequestContext) bool
 
 	// EnableCompression specify if the server should attempt to negotiate per
 	// message compression (RFC 7692). Setting this value to true does not
@@ -78,9 +90,7 @@ type Upgrader struct {
 	EnableCompression bool
 }
 
-type HertzHandler func(conn *Conn) error
-
-func (u *Upgrader) returnError(ctx *app.RequestContext, status int, reason string) error {
+func (u *HertzUpgrader) returnError(ctx *app.RequestContext, status int, reason string) error {
 	err := HandshakeError{reason}
 	if u.Error != nil {
 		u.Error(ctx, status, err)
@@ -92,308 +102,128 @@ func (u *Upgrader) returnError(ctx *app.RequestContext, status int, reason strin
 	return err
 }
 
-// checkSameOrigin returns true if the origin is not set or is equal to the request host.
-func checkSameOrigin(r *protocol.Request) bool {
-	origin := r.Header.Get("Origin")
-	if len(origin) == 0 {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-	return equalASCIIFold(u.Host, string(r.Host()))
-}
-
-func (u *Upgrader) selectSubprotocol(r *protocol.Request, responseHeader *protocol.ResponseHeader) string {
+func (u *HertzUpgrader) selectSubprotocol(ctx *app.RequestContext) []byte {
 	if u.Subprotocols != nil {
-		clientProtocols := Subprotocols(r)
+		clientProtocols := parseDataHeader(ctx.Request.Header.Peek("Sec-Websocket-Protocol"))
+
 		for _, serverProtocol := range u.Subprotocols {
 			for _, clientProtocol := range clientProtocols {
-				if clientProtocol == serverProtocol {
+				if strconv.B2S(clientProtocol) == serverProtocol {
 					return clientProtocol
 				}
 			}
 		}
-	} else if responseHeader.Get("Sec-Websocket-Protocol") != "" {
-		return responseHeader.Get("Sec-Websocket-Protocol")
-	}
-	return ""
-}
-
-// Upgrade upgrades the HTTP server connection to the WebSocket protocol.
-//
-// The responseHeader is included in the response to the client's upgrade
-// request. Use the responseHeader to specify cookies (Set-Cookie). To specify
-// subprotocols supported by the server, set Upgrader.Subprotocols directly.
-//
-// If the upgrade fails, then Upgrade replies to the client with an HTTP error
-// response.
-func (u *Upgrader) Upgrade(appCtx *app.RequestContext, handler HertzHandler) error {
-	r := &appCtx.Request
-	rsp := &appCtx.Response
-
-	if appCtx.Hijacked() {
-		return u.returnError(appCtx, http.StatusInternalServerError, "connection mustn't be hijacked")
-	}
-
-	const badHandshake = "websocket: the client is not using the websocket protocol: "
-
-	if !tokenListContainsValue(protocolReqHeaderValueByKey(&r.Header, "Connection"), "upgrade") {
-		return u.returnError(appCtx, http.StatusBadRequest, badHandshake+"'upgrade' token not found in 'Connection' header")
-	}
-
-	if !tokenListContainsValue(protocolReqHeaderValueByKey(&r.Header, "Upgrade"), "websocket") {
-		return u.returnError(appCtx, http.StatusBadRequest, badHandshake+"'websocket' token not found in 'Upgrade' header")
-	}
-
-	if !appCtx.IsGet() {
-		return u.returnError(appCtx, http.StatusMethodNotAllowed, badHandshake+"request method is not GET")
-	}
-
-	if !tokenListContainsValue(protocolReqHeaderValueByKey(&r.Header, "Sec-Websocket-Version"), "13") {
-		return u.returnError(appCtx, http.StatusBadRequest, "websocket: unsupported version: 13 not found in 'Sec-Websocket-Version' header")
-	}
-
-	if v := rsp.Header.Get("Sec-Websocket-Extensions"); v != "" {
-		return u.returnError(appCtx, http.StatusInternalServerError, "websocket: application specific 'Sec-WebSocket-Extensions' headers are unsupported")
-	}
-
-	checkOrigin := u.CheckOrigin
-	if checkOrigin == nil {
-		checkOrigin = checkSameOrigin
-	}
-	if !checkOrigin(r) {
-		return u.returnError(appCtx, http.StatusForbidden, "websocket: request origin not allowed by Upgrader.CheckOrigin")
-	}
-
-	challengeKey := r.Header.Get("Sec-Websocket-Key")
-	if !isValidChallengeKey(challengeKey) {
-		return u.returnError(appCtx, http.StatusBadRequest, "websocket: not a websocket handshake: 'Sec-WebSocket-Key' header must be Base64 encoded value of 16-byte in length")
-	}
-
-	subprotocol := u.selectSubprotocol(r, &rsp.Header)
-
-	// Negotiate PMCE
-	var compress bool
-	if u.EnableCompression {
-		for _, ext := range parseExtensions(protocolReqHeaderValueByKey(&r.Header, "Sec-Websocket-Extensions")) {
-			if ext[""] != "permessage-deflate" {
-				continue
-			}
-			compress = true
-			break
-		}
-	}
-
-	netConn := appCtx.GetConn()
-
-	var brw *bufio.ReadWriter
-	brw = bufio.NewReadWriter(bufio.NewReader(r.BodyStream()), bufio.NewWriter(netConn))
-	if len(r.Body()) > 0 {
-		if err := netConn.Close(); err != nil {
-			return err
-		}
-		return errors.New("websocket: client sent data before handshake is complete")
-	}
-	var br *bufio.Reader
-	if u.ReadBufferSize == 0 && r.BodyBuffer().Len() > 256 {
-		// Reuse hijacked buffered reader as connection reader.
-		br = bufio.NewReaderSize(netConn, r.BodyBuffer().Len())
-	}
-
-	buf := bufioWriterBuffer(netConn, brw.Writer)
-
-	var writeBuf []byte
-	if u.WriteBufferPool == nil && u.WriteBufferSize == 0 && len(buf) >= maxFrameHeaderSize+256 {
-		// Reuse hijacked write buffer as connection buffer.
-		writeBuf = buf
-	}
-
-	c := newConn(netConn, true, u.ReadBufferSize, u.WriteBufferSize, u.WriteBufferPool, br, writeBuf)
-	c.subprotocol = subprotocol
-
-	if compress {
-		c.newCompressionWriter = compressNoContextTakeover
-		c.newDecompressionReader = decompressNoContextTakeover
-	}
-
-	// Use larger of hijacked buffer and connection write buffer for header.
-	p := buf
-	if len(c.writeBuf) > len(p) {
-		p = c.writeBuf
-	}
-	p = p[:0]
-
-	p = append(p, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "...)
-	p = append(p, computeAcceptKey(challengeKey)...)
-	p = append(p, "\r\n"...)
-	if c.subprotocol != "" {
-		p = append(p, "Sec-WebSocket-Protocol: "...)
-		p = append(p, c.subprotocol...)
-		p = append(p, "\r\n"...)
-	}
-	if compress {
-		p = append(p, "Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n"...)
-	}
-
-	for _, kv := range rsp.Header.GetHeaders() {
-		k := string(kv.GetKey())
-		if k == "Sec-Websocket-Protocol" {
-			continue
-		}
-		for _, value := range kv.GetValue() {
-			v := string(value)
-			p = append(p, k...)
-			p = append(p, ": "...)
-			for i := 0; i < len(v); i++ {
-				b := v[i]
-				if b <= 31 {
-					// prevent response splitting.
-					b = ' '
-				}
-				p = append(p, b)
-			}
-			p = append(p, "\r\n"...)
-		}
-	}
-	p = append(p, "\r\n"...)
-
-	// Clear deadlines set by HTTP server.
-	// netpoll do not support SetDeadline
-	_ = netConn.SetDeadline(time.Time{})
-
-	if u.HandshakeTimeout > 0 {
-		if err := netConn.SetWriteDeadline(time.Now().Add(u.HandshakeTimeout)); err != nil {
-			return err
-		}
-	}
-	if _, err := netConn.Write(p); err != nil {
-		if err = netConn.Close(); err != nil {
-			return err
-		}
-		return err
-	}
-	if u.HandshakeTimeout > 0 {
-		if err := netConn.SetWriteDeadline(time.Time{}); err != nil {
-			return err
-		}
-	}
-	if err := netConn.SetReadTimeout(0); err != nil {
-		return err
-	}
-
-	// 只能 block 住，否则 ctx.Reset 会回收？
-	hijackStopCh := make(chan struct{})
-	if err := handler(c); err != nil {
-		close(hijackStopCh)
-		return err
-	}
-
-	select {
-	case <-hijackStopCh:
+	} else if ctx.Response.Header.Len() > 0 {
+		return ctx.Response.Header.Peek("Sec-Websocket-Protocol")
 	}
 
 	return nil
 }
 
+func (u *HertzUpgrader) isCompressionEnable(ctx *app.RequestContext) bool {
+	extensions := parseDataHeader(ctx.Request.Header.Peek("Sec-WebSocket-Extensions"))
+
+	// Negotiate PMCE
+	if u.EnableCompression {
+		for _, ext := range extensions {
+			if bytes.HasPrefix(ext, strPermessageDeflate) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // Upgrade upgrades the HTTP server connection to the WebSocket protocol.
-//
-// Deprecated: Use websocket.Upgrader instead.
-//
-// Upgrade does not perform origin checking. The application is responsible for
-// checking the Origin header before calling Upgrade. An example implementation
-// of the same origin policy check is:
-//
-//	if req.Header.Get("Origin") != "http://"+req.Host {
-//		http.Error(w, "Origin not allowed", http.StatusForbidden)
-//		return
-//	}
-//
-// If the endpoint supports subprotocols, then the application is responsible
-// for negotiating the protocol used on the connection. Use the Subprotocols()
-// function to get the subprotocols requested by the client. Use the
-// Sec-Websocket-Protocol response header to specify the subprotocol selected
-// by the application.
 //
 // The responseHeader is included in the response to the client's upgrade
 // request. Use the responseHeader to specify cookies (Set-Cookie) and the
-// negotiated subprotocol (Sec-Websocket-Protocol).
+// application negotiated subprotocol (Sec-WebSocket-Protocol).
 //
-// The connection buffers IO to the underlying network connection. The
-// readBufSize and writeBufSize parameters specify the size of the buffers to
-// use. Messages can be larger than the buffers.
-//
-// If the request is not a valid WebSocket handshake, then Upgrade returns an
-// error of type HandshakeError. Applications should handle this error by
-// replying to the client with an HTTP error response.
-// TODO
-// func Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header, readBufSize, writeBufSize int) (*Conn, error) {
-// 	u := Upgrader{ReadBufferSize: readBufSize, WriteBufferSize: writeBufSize}
-// 	u.Error = func(w http.ResponseWriter, r *http.Request, status int, reason error) {
-// 		// don't return errors to maintain backwards compatibility
-// 	}
-// 	u.CheckOrigin = func(r *http.Request) bool {
-// 		// allow all connections by default
-// 		return true
-// 	}
-// 	return u.Upgrade(w, r, responseHeader)
-// }
-
-// Subprotocols returns the subprotocols requested by the client in the
-// Sec-Websocket-Protocol header.
-func Subprotocols(r *protocol.Request) []string {
-	h := strings.TrimSpace(r.Header.Get("Sec-Websocket-Protocol"))
-	if h == "" {
-		return nil
+// If the upgrade fails, then Upgrade replies to the client with an HTTP error
+// response.
+func (u *HertzUpgrader) Upgrade(ctx *app.RequestContext, handler HertzHandler) error {
+	if !ctx.IsGet() {
+		return u.returnError(ctx, consts.StatusMethodNotAllowed, fmt.Sprintf("%s request method is not GET", badHandshake))
 	}
-	protocols := strings.Split(h, ",")
-	for i := range protocols {
-		protocols[i] = strings.TrimSpace(protocols[i])
+
+	if !tokenContainsValue(strconv.B2S(ctx.Request.Header.Peek("Connection")), "Upgrade") {
+		return u.returnError(ctx, consts.StatusBadRequest, fmt.Sprintf("%s 'upgrade' token not found in 'Connection' header", badHandshake))
 	}
-	return protocols
-}
 
-// IsWebSocketUpgrade returns true if the client requested upgrade to the
-// WebSocket protocol.
-func IsWebSocketUpgrade(r *protocol.Request) bool {
-	return tokenListContainsValue(protocolReqHeaderValueByKey(&r.Header, "Connection"), "upgrade") &&
-		tokenListContainsValue(protocolReqHeaderValueByKey(&r.Header, "Upgrade"), "websocket")
-}
-
-// bufioReaderSize size returns the size of a bufio.Reader.
-func bufioReaderSize(originalReader io.Reader, br *bufio.Reader) int {
-	// This code assumes that peek on a reset reader returns
-	// bufio.Reader.buf[:0].
-	// TODO: Use bufio.Reader.Size() after Go 1.10
-	br.Reset(originalReader)
-	if p, err := br.Peek(0); err == nil {
-		return cap(p)
+	if !tokenContainsValue(strconv.B2S(ctx.Request.Header.Peek("Upgrade")), "Websocket") {
+		return u.returnError(ctx, consts.StatusBadRequest, fmt.Sprintf("%s 'websocket' token not found in 'Upgrade' header", badHandshake))
 	}
-	return 0
+
+	if !tokenContainsValue(strconv.B2S(ctx.Request.Header.Peek("Sec-Websocket-Version")), "13") {
+		return u.returnError(ctx, consts.StatusBadRequest, "websocket: unsupported version: 13 not found in 'Sec-Websocket-Version' header")
+	}
+
+	if len(ctx.Response.Header.Peek("Sec-Websocket-Extensions")) > 0 {
+		return u.returnError(ctx, consts.StatusInternalServerError, "websocket: application specific 'Sec-WebSocket-Extensions' headers are unsupported")
+	}
+
+	checkOrigin := u.CheckOrigin
+	if checkOrigin == nil {
+		checkOrigin = fastHTTPCheckSameOrigin
+	}
+	if !checkOrigin(ctx) {
+		return u.returnError(ctx, consts.StatusForbidden, "websocket: request origin not allowed by HertzUpgrader.CheckOrigin")
+	}
+
+	challengeKey := ctx.Request.Header.Peek("Sec-Websocket-Key")
+	if len(challengeKey) == 0 {
+		return u.returnError(ctx, consts.StatusBadRequest, "websocket: not a websocket handshake: `Sec-WebSocket-Key' header is missing or blank")
+	}
+
+	subprotocol := u.selectSubprotocol(ctx)
+	compress := u.isCompressionEnable(ctx)
+
+	ctx.SetStatusCode(consts.StatusSwitchingProtocols)
+	ctx.Response.Header.Set("Upgrade", "websocket")
+	ctx.Response.Header.Set("Connection", "Upgrade")
+	ctx.Response.Header.Set("Sec-WebSocket-Accept", computeAcceptKeyBytes(challengeKey))
+	if compress {
+		ctx.Response.Header.Set("Sec-WebSocket-Extensions", "permessage-deflate; server_no_context_takeover; client_no_context_takeover")
+	}
+	if subprotocol != nil {
+		ctx.Response.Header.SetBytesV("Sec-WebSocket-Protocol", subprotocol)
+	}
+
+	ctx.Hijack(func(netConn network.Conn) {
+		writeBuf := poolWriteBuffer.Get().([]byte)
+		c := newConn(netConn, true, u.ReadBufferSize, u.WriteBufferSize, u.WriteBufferPool, nil, writeBuf)
+		if subprotocol != nil {
+			c.subprotocol = strconv.B2S(subprotocol)
+		}
+
+		if compress {
+			c.newCompressionWriter = compressNoContextTakeover
+			c.newDecompressionReader = decompressNoContextTakeover
+		}
+
+		// Clear deadlines set by HTTP server.
+		netConn.SetDeadline(time.Time{})
+
+		handler(c)
+
+		writeBuf = writeBuf[0:0]
+		poolWriteBuffer.Put(writeBuf)
+	})
+
+	return nil
 }
 
-// writeHook is an io.Writer that records the last slice passed to it vio
-// io.Writer.Write.
-type writeHook struct {
-	p []byte
-}
-
-func (wh *writeHook) Write(p []byte) (int, error) {
-	wh.p = p
-	return len(p), nil
-}
-
-// bufioWriterBuffer grabs the buffer from a bufio.Writer.
-func bufioWriterBuffer(originalWriter io.Writer, bw *bufio.Writer) []byte {
-	// This code assumes that bufio.Writer.buf[:1] is passed to the
-	// bufio.Writer's underlying writer.
-	var wh writeHook
-	bw.Reset(&wh)
-	bw.WriteByte(0)
-	bw.Flush()
-
-	bw.Reset(originalWriter)
-
-	return wh.p[:cap(wh.p)]
+// fastHTTPCheckSameOrigin returns true if the origin is not set or is equal to the request host.
+func fastHTTPCheckSameOrigin(ctx *app.RequestContext) bool {
+	origin := ctx.Request.Header.Peek("Origin")
+	if len(origin) == 0 {
+		return true
+	}
+	u, err := url.Parse(strconv.B2S(origin))
+	if err != nil {
+		return false
+	}
+	return equalASCIIFold(u.Host, strconv.B2S(ctx.Host()))
 }

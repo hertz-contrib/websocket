@@ -20,10 +20,10 @@ import (
 
 var addr = flag.String("addr", "localhost:8080", "http service address")
 
-var upgrader = websocket.Upgrader{} // use default options
+var upgrader = websocket.HertzUpgrader{} // use default options
 
 func echo(_ context.Context, c *app.RequestContext) {
-	err := upgrader.Upgrade(c, func(conn *websocket.Conn) error {
+	err := upgrader.Upgrade(c, func(conn *websocket.Conn) {
 		for {
 			mt, message, err := conn.ReadMessage()
 			if err != nil {
@@ -37,7 +37,6 @@ func echo(_ context.Context, c *app.RequestContext) {
 				break
 			}
 		}
-		return nil
 	})
 	if err != nil {
 		log.Print("upgrade:", err)
@@ -52,6 +51,8 @@ func home(_ context.Context, c *app.RequestContext) {
 func main() {
 	flag.Parse()
 	h := server.Default(server.WithHostPorts(*addr))
+	// https://github.com/cloudwego/hertz/issues/121
+	h.NoHijackConnPool = true
 	h.GET("/", home)
 	h.GET("/echo", echo)
 	h.Spin()

@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -15,7 +14,7 @@ import (
 	"github.com/hertz-contrib/websocket"
 )
 
-var upgrader = websocket.Upgrader{
+var upgrader = websocket.HertzUpgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
@@ -44,20 +43,7 @@ func main() {
 
 	h.GET("/", serveHome)
 	h.GET("/ws", func(c context.Context, ctx *app.RequestContext) {
-		err := upgrader.Upgrade(ctx, func(conn *websocket.Conn) error {
-			client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
-			client.hub.register <- client
-
-			// Allow collection of memory referenced by the caller by doing all work in
-			// new goroutines.
-			go client.writePump()
-			go client.readPump()
-			return nil
-		})
-		if err != nil {
-			log.Println(err)
-			return
-		}
+		serveWs(ctx, hub)
 	})
 
 	h.Spin()

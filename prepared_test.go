@@ -34,7 +34,7 @@ var preparedMessageTests = []struct {
 
 func TestPreparedMessage(t *testing.T) {
 	for _, tt := range preparedMessageTests {
-		var data = []byte("this is a test")
+		data := []byte("this is a test")
 		var buf bytes.Buffer
 		c := newTestConn(nil, &buf, tt.isServer)
 		if tt.enableWriteCompression {

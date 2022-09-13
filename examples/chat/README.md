@@ -1,7 +1,7 @@
 # Chat Example
 
 This application shows how to use the
-[websocket](https://github.com/gorilla/websocket) package to implement a simple
+[websocket](https://github.com/hertz-contrib/websocket) package to implement a simple
 web chat application.
 
 ## Running the example
@@ -13,8 +13,8 @@ development environment.
 Once you have Go up and running, you can download, build and run the example
 using the following commands.
 
-    $ go get github.com/gorilla/websocket
-    $ cd `go list -f '{{.Dir}}' github.com/gorilla/websocket/examples/chat`
+    $ go get https://github.com/hertz-contrib/websocket
+    $ cd `go list -f '{{.Dir}}' https://github.com/hertz-contrib/websocket/examples/chat`
     $ go run *.go
 
 To use the chat example, open http://localhost:8080/ in your browser.
@@ -38,7 +38,7 @@ sends them to the hub.
 ### Hub 
 
 The code for the `Hub` type is in
-[hub.go](https://github.com/gorilla/websocket/blob/master/examples/chat/hub.go). 
+[hub.go](https://https://github.com/hertz-contrib/websocket/blob/master/examples/chat/hub.go). 
 The application's `main` function starts the hub's `run` method as a goroutine.
 Clients send requests to the hub using the `register`, `unregister` and
 `broadcast` channels.
@@ -57,7 +57,7 @@ unregisters the client and closes the websocket.
 
 ### Client
 
-The code for the `Client` type is in [client.go](https://github.com/gorilla/websocket/blob/master/examples/chat/client.go).
+The code for the `Client` type is in [client.go](https://https://github.com/hertz-contrib/websocket/blob/master/examples/chat/client.go).
 
 The `serveWs` function is registered by the application's `main` function as
 an HTTP handler. The handler upgrades the HTTP connection to the WebSocket
@@ -85,7 +85,7 @@ network.
 
 ## Frontend
 
-The frontend code is in [home.html](https://github.com/gorilla/websocket/blob/master/examples/chat/home.html).
+The frontend code is in [home.html](https://https://github.com/hertz-contrib/websocket/blob/master/examples/chat/home.html).
 
 On document load, the script checks for websocket functionality in the browser.
 If websocket functionality is available, then the script opens a connection to

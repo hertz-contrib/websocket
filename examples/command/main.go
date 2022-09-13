@@ -102,14 +102,16 @@ func internalError(ws *websocket.Conn, msg string, err error) {
 	ws.WriteMessage(websocket.TextMessage, []byte("Internal server error."))
 }
 
-var upgrader = websocket.Upgrader{}
+var upgrader = websocket.HertzUpgrader{}
 
-func serveWs(_ context.Context, c *app.RequestContext) {
-	err := upgrader.Upgrade(c, func(ws *websocket.Conn) error {
+func serveWs(c context.Context, ctx *app.RequestContext) {
+	err := upgrader.Upgrade(ctx, func(ws *websocket.Conn) {
+		defer ws.Close()
+
 		outr, outw, err := os.Pipe()
 		if err != nil {
 			internalError(ws, "stdout:", err)
-			return err
+			return
 		}
 		defer outr.Close()
 		defer outw.Close()
@@ -117,7 +119,7 @@ func serveWs(_ context.Context, c *app.RequestContext) {
 		inr, inw, err := os.Pipe()
 		if err != nil {
 			internalError(ws, "stdin:", err)
-			return err
+			return
 		}
 		defer inr.Close()
 		defer inw.Close()
@@ -127,7 +129,7 @@ func serveWs(_ context.Context, c *app.RequestContext) {
 		})
 		if err != nil {
 			internalError(ws, "start:", err)
-			return err
+			return
 		}
 
 		inr.Close()
@@ -160,8 +162,6 @@ func serveWs(_ context.Context, c *app.RequestContext) {
 		if _, err := proc.Wait(); err != nil {
 			log.Println("wait:", err)
 		}
-
-		return nil
 	})
 	if err != nil {
 		log.Println("upgrade:", err)
@@ -197,6 +197,4 @@ func main() {
 	h.GET("/", serveHome)
 	h.GET("/ws", serveWs)
 	h.Spin()
-
-	log.Fatal(http.ListenAndServe(*addr, nil))
 }

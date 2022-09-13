@@ -5,16 +5,19 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"html/template"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/hertz-contrib/websocket"
 )
 
 const (
@@ -35,7 +38,7 @@ var (
 	addr      = flag.String("addr", ":8080", "http service address")
 	homeTempl = template.Must(template.New("").Parse(homeHTML))
 	filename  string
-	upgrader  = websocket.Upgrader{
+	upgrader  = websocket.HertzUpgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 	}
@@ -110,49 +113,47 @@ func writer(ws *websocket.Conn, lastMod time.Time) {
 	}
 }
 
-func serveWs(w http.ResponseWriter, r *http.Request) {
-	ws, err := upgrader.Upgrade(w, r, nil)
+func serveWs(c context.Context, ctx *app.RequestContext) {
+	err := upgrader.Upgrade(ctx, func(ws *websocket.Conn) {
+		var lastMod time.Time
+		if n, err := strconv.ParseInt(string(ctx.FormValue("lastMod")), 16, 64); err == nil {
+			lastMod = time.Unix(0, n)
+		}
+
+		go writer(ws, lastMod)
+		reader(ws)
+	})
 	if err != nil {
-		if _, ok := err.(websocket.HandshakeError); !ok {
+		if _, ok := err.(websocket.HandshakeError); ok {
 			log.Println(err)
 		}
 		return
 	}
-
-	var lastMod time.Time
-	if n, err := strconv.ParseInt(r.FormValue("lastMod"), 16, 64); err == nil {
-		lastMod = time.Unix(0, n)
-	}
-
-	go writer(ws, lastMod)
-	reader(ws)
 }
 
-func serveHome(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.Error(w, "Not found", http.StatusNotFound)
+func serveHome(c context.Context, ctx *app.RequestContext) {
+	if !ctx.IsGet() {
+		ctx.AbortWithMsg("Method not allowed", consts.StatusMethodNotAllowed)
 		return
 	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	ctx.SetContentType("text/html; charset=utf-8")
+
 	p, lastMod, err := readFileIfModified(time.Time{})
 	if err != nil {
 		p = []byte(err.Error())
 		lastMod = time.Unix(0, 0)
 	}
-	var v = struct {
+	v := struct {
 		Host    string
 		Data    string
 		LastMod string
 	}{
-		r.Host,
+		string(ctx.Host()),
 		string(p),
 		strconv.FormatInt(lastMod.UnixNano(), 16),
 	}
-	homeTempl.Execute(w, &v)
+	homeTempl.Execute(ctx, &v)
 }
 
 func main() {
@@ -161,11 +162,18 @@ func main() {
 		log.Fatal("filename not specified")
 	}
 	filename = flag.Args()[0]
-	http.HandleFunc("/", serveHome)
-	http.HandleFunc("/ws", serveWs)
-	if err := http.ListenAndServe(*addr, nil); err != nil {
-		log.Fatal(err)
-	}
+
+	h := server.New(server.WithHostPorts(*addr))
+
+	h.GET("/", serveHome)
+
+	h.GET("/ws", serveWs)
+
+	h.NoRoute(func(c context.Context, ctx *app.RequestContext) {
+		ctx.AbortWithMsg("Unsupported path", consts.StatusNotFound)
+	})
+
+	h.Spin()
 }
 
 const homeHTML = `<!DOCTYPE html>

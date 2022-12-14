@@ -48,7 +48,8 @@ func echo(_ context.Context, c *app.RequestContext) {
 }
 
 func home(_ context.Context, c *app.RequestContext) {
-	homeTemplate.Execute(c.GetConn(), "ws://"+string(c.Host())+"/echo")
+	c.SetContentType("text/html; charset=utf-8")
+	homeTemplate.Execute(c, "ws://"+string(c.Host())+"/echo")
 }
 
 func main() {

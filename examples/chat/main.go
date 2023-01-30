@@ -20,6 +20,9 @@ import (
 var upgrader = websocket.HertzUpgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin: func(ctx *app.RequestContext) bool {
+		return true
+	},
 }
 
 var addr = ":8080"
@@ -42,7 +45,7 @@ func main() {
 	// server.Default() creates a Hertz with recovery middleware.
 	// If you need a pure hertz, you can use server.New()
 	h := server.Default(server.WithHostPorts(addr))
-	h.LoadHTMLGlob("home.html")
+	h.LoadHTMLGlob("examples/chat/home.html")
 
 	h.GET("/", serveHome)
 	h.GET("/ws", func(c context.Context, ctx *app.RequestContext) {

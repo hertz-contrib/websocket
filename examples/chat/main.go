@@ -45,7 +45,7 @@ func main() {
 	// server.Default() creates a Hertz with recovery middleware.
 	// If you need a pure hertz, you can use server.New()
 	h := server.Default(server.WithHostPorts(addr))
-	h.LoadHTMLGlob("examples/chat/home.html")
+	h.LoadHTMLGlob("home.html")
 
 	h.GET("/", serveHome)
 	h.GET("/ws", func(c context.Context, ctx *app.RequestContext) {

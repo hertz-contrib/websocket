@@ -20,6 +20,9 @@ import (
 var upgrader = websocket.HertzUpgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin: func(ctx *app.RequestContext) bool {
+		return true
+	},
 }
 
 var addr = ":8080"

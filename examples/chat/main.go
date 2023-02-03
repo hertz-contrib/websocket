@@ -37,7 +37,6 @@ func serveHome(_ context.Context, c *app.RequestContext) {
 }
 
 func main() {
-	hub := newHub()
 	go hub.run()
 	// server.Default() creates a Hertz with recovery middleware.
 	// If you need a pure hertz, you can use server.New()
@@ -46,7 +45,7 @@ func main() {
 
 	h.GET("/", serveHome)
 	h.GET("/ws", func(c context.Context, ctx *app.RequestContext) {
-		serveWs(ctx, hub)
+		serveWs(ctx)
 	})
 
 	h.Spin()

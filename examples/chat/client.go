@@ -37,8 +37,6 @@ var (
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	hub *Hub
-
 	// The websocket connection.
 	conn *websocket.Conn
 
@@ -53,7 +51,7 @@ type Client struct {
 // reads from this goroutine.
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		hub.unregister <- c
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
@@ -68,7 +66,7 @@ func (c *Client) readPump() {
 			break
 		}
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		c.hub.broadcast <- message
+		hub.broadcast <- message
 	}
 }
 
@@ -119,10 +117,10 @@ func (c *Client) writePump() {
 }
 
 // serveWs handles websocket requests from the peer.
-func serveWs(ctx *app.RequestContext, hub *Hub) {
+func serveWs(ctx *app.RequestContext) {
 	err := upgrader.Upgrade(ctx, func(conn *websocket.Conn) {
-		client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
-		client.hub.register <- client
+		client := &Client{conn: conn, send: make(chan []byte, 256)}
+		hub.register <- client
 
 		go client.writePump()
 		client.readPump()

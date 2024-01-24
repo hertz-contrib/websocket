@@ -324,6 +324,10 @@ func newConn(conn net.Conn, isServer bool, readBufferSize, writeBufferSize int, 
 	return c
 }
 
+func (c *Conn) Hijack() net.Conn {
+	return c.conn
+}
+
 // setReadRemaining tracks the number of bytes remaining on the connection. If n
 // overflows, an ErrReadLimit is returned.
 func (c *Conn) setReadRemaining(n int64) error {

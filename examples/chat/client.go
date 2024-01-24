@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/hertz-contrib/websocket"
+	"github.com/chaoyongzhou/websocket"
 )
 
 const (

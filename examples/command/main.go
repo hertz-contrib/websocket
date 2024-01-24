@@ -21,7 +21,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
-	"github.com/hertz-contrib/websocket"
+	"github.com/chaoyongzhou/websocket"
 )
 
 var (

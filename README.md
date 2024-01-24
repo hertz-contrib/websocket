@@ -13,7 +13,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/hertz-contrib/websocket"
+	"github.com/chaoyongzhou/websocket"
 )
 
 var upgrader = websocket.HertzUpgrader{} // use default options

@@ -18,7 +18,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/hertz-contrib/websocket"
+	"github.com/chaoyongzhou/websocket"
 )
 
 var addr = flag.String("addr", "localhost:8080", "http service address")

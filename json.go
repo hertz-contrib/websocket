@@ -8,7 +8,7 @@
 package websocket
 
 import (
-	"encoding/json"
+	"github.com/bytedance/sonic"
 	"io"
 )
 
@@ -21,7 +21,7 @@ func (c *Conn) WriteJSON(v interface{}) error {
 	if err != nil {
 		return err
 	}
-	err1 := json.NewEncoder(w).Encode(v)
+	err1 := sonic.ConfigDefault.NewEncoder(w).Encode(v)
 	err2 := w.Close()
 	if err1 != nil {
 		return err1
@@ -39,7 +39,7 @@ func (c *Conn) ReadJSON(v interface{}) error {
 	if err != nil {
 		return err
 	}
-	err = json.NewDecoder(r).Decode(v)
+	err = sonic.ConfigDefault.NewDecoder(r).Decode(v)
 	if err == io.EOF {
 		// One value is expected in the message.
 		err = io.ErrUnexpectedEOF

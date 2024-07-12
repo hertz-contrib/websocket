@@ -9,10 +9,13 @@ package websocket
 
 import (
 	"bytes"
-	"encoding/json"
+	"errors"
 	"io"
 	"reflect"
 	"testing"
+
+	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/decoder"
 )
 
 func TestJSON(t *testing.T) {
@@ -56,7 +59,7 @@ func TestPartialJSONRead(t *testing.T) {
 
 	// Partial JSON values.
 
-	data, err := json.Marshal(v)
+	data, err := sonic.Marshal(v)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +85,7 @@ func TestPartialJSONRead(t *testing.T) {
 
 	for i := 0; i < messageCount; i++ {
 		err := rc.ReadJSON(&v)
-		if err != io.ErrUnexpectedEOF {
+		if err != io.ErrUnexpectedEOF && !errors.As(err, &decoder.SyntaxError{}) {
 			t.Error("read", i, err)
 		}
 	}

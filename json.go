@@ -8,8 +8,9 @@
 package websocket
 
 import (
-	"github.com/bytedance/sonic"
 	"io"
+
+	"github.com/bytedance/sonic"
 )
 
 // WriteJSON writes the JSON encoding of v as a message.

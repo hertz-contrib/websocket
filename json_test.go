@@ -10,11 +10,12 @@ package websocket
 import (
 	"bytes"
 	"errors"
-	"github.com/bytedance/sonic"
-	"github.com/bytedance/sonic/decoder"
 	"io"
 	"reflect"
 	"testing"
+
+	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/decoder"
 )
 
 func TestJSON(t *testing.T) {

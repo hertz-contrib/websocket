@@ -11,11 +11,20 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/binary"
+	"math/rand"
 	"unicode/utf8"
 	"unsafe"
 )
 
 var keyGUID = []byte("258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+
+func generateChallengeKey() string {
+	b := make([]byte, 16)
+	binary.BigEndian.PutUint64(b, rand.Uint64())
+	binary.BigEndian.PutUint64(b[8:], rand.Uint64())
+	return base64.StdEncoding.EncodeToString(b)
+}
 
 // Token octets per RFC 2616.
 var isTokenOctet = [256]bool{

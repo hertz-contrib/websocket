@@ -15,3 +15,7 @@
 .idea
 # vscode
 .vscode
+
+# Go workspace file
+go.work
+go.work.sum

@@ -86,7 +86,7 @@ func TestFraming(t *testing.T) {
 			return w.Write(writeBuf[:n])
 		}},
 		{"string", func(w io.Writer, n int) (int, error) {
-			return io.WriteString(w, string(writeBuf[:n]))
+			return io.WriteString(w, string(writeBuf[:n])) // nolint: staticcheck
 		}},
 	}
 

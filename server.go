@@ -211,7 +211,9 @@ func (u *HertzUpgrader) Upgrade(ctx *app.RequestContext, handler HertzHandler) e
 		handler(c)
 
 		writeBuf = writeBuf[0:0]
-		poolWriteBuffer.Put(writeBuf)
+
+		// FIXME: argument should be pointer-like to avoid allocations (staticcheck)
+		poolWriteBuffer.Put(writeBuf) // nolint: staticcheck
 	})
 
 	return nil

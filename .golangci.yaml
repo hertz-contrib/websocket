@@ -1,0 +1,10 @@
+linters: # https://golangci-lint.run/usage/linters/
+  disable-all: true
+  enable:
+    # - errcheck # can not skip _test.go ?
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - unconvert

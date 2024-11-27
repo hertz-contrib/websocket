@@ -1,30 +1,31 @@
 name: Tests
 
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 jobs:
-  lint-and-ut:
-    runs-on: self-hosted
+  benchmark:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
+      - uses: actions/checkout@v4
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.18
+          go-version: stable
 
-      - uses: actions/cache@v3
+      - name: Benchmark
+        run: go test -bench=. -benchmem ./...
+
+  uinttest:
+    strategy:
+      matrix:
+        go: [ "1.18", "1.19", "1.20", "1.21", "1.22", "1.23" ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Lint
-        run: |
-          go vet -stdmethods=false $(go list ./...)
-          go install mvdan.cc/gofumpt@v0.2.0
-          test -z "$(gofumpt -l -extra .)" 
-
+          go-version: ${{ matrix.go }}
+          cache: true # set false for self-hosted
       - name: Unit Test
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -race ./...

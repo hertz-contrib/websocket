@@ -282,6 +282,10 @@ type Conn struct {
 
 	readDecompress         bool // whether last read frame had RSV1 set
 	newDecompressionReader func(io.Reader) io.ReadCloser
+
+	// keep reference to the resp to make sure the underlying conn will not be closed.
+	// see: https://github.com/cloudwego/hertz/pull/1214 for the details.
+	resp interface{} // *protocol.Response
 }
 
 func newConn(conn net.Conn, isServer bool, readBufferSize, writeBufferSize int, writeBufferPool BufferPool, br *bufio.Reader, writeBuf []byte) *Conn {

@@ -1,5 +1,6 @@
 # Hertz-WebSocket(This is a community driven project)
 
+**Notice**: This project is now archived. For users and those seeking similar functionality, please consider migrate to the official `gorilla/websocket` toolchain using the [Hertz HTTP Adaptor](https://www.cloudwego.io/docs/hertz/tutorials/basic-feature/http-adaptor/). Check [migration-guide](https://www.cloudwego.io/docs/hertz/tutorials/third-party/protocol/websocket/#migration-guide).
 
 This repo is forked from [Gorilla WebSocket](https://github.com/gorilla/websocket/) and adapted to Hertz.
 
